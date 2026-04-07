@@ -11,7 +11,9 @@ import { MonthlyExplanation } from "./components/MonthlyExplanation";
 import { Footer } from "./components/Footer";
 import { LoadingScreen } from "./components/LoadingScreen";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
+import { format, subMonths, startOfMonth, endOfMonth, isWithinInterval, parseISO } from "date-fns";
 
 function AppContent() {
   const { 
@@ -27,27 +29,56 @@ function AppContent() {
     addTransaction
   } = useAuth();
 
+  const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
+
+  const monthOptions = useMemo(() => {
+    const options = [];
+    for (let i = 0; i < 12; i++) {
+      const date = subMonths(new Date(), i);
+      options.push({
+        label: format(date, "MMMM yyyy"),
+        value: format(date, "yyyy-MM"),
+      });
+    }
+    return options;
+  }, []);
+
+  const filteredTransactions = useMemo(() => {
+    const [year, month] = selectedMonth.split('-').map(Number);
+    const date = new Date(year, month - 1);
+    const start = startOfMonth(date);
+    const end = endOfMonth(date);
+    
+    return transactions.filter(t => {
+      const txDate = parseISO(t.date);
+      return isWithinInterval(txDate, { start, end });
+    });
+  }, [transactions, selectedMonth]);
+
   const summary = useMemo(() => {
-    const totalIncome = transactions
+    const totalIncome = filteredTransactions
       .filter(t => t.type === 'income')
       .reduce((acc, t) => acc + t.amount, 0);
     
-    const totalExpenses = transactions
+    const totalExpenses = filteredTransactions
       .filter(t => t.type === 'expense')
       .reduce((acc, t) => acc + t.amount, 0);
       
-    const totalSavings = transactions
+    const totalSavings = filteredTransactions
       .filter(t => t.type === 'savings')
       .reduce((acc, t) => acc + t.amount, 0);
 
+    const [year, month] = selectedMonth.split('-').map(Number);
+    const date = new Date(year, month - 1);
+
     return {
-      month: new Date().toLocaleString('default', { month: 'long' }),
+      month: format(date, "MMMM"),
       totalIncome,
       totalExpenses,
       totalSavings,
       netSavings: totalIncome - totalExpenses - totalSavings,
     };
-  }, [transactions]);
+  }, [filteredTransactions, selectedMonth]);
 
   if (loading) {
     return <LoadingScreen />;
@@ -84,7 +115,21 @@ function AppContent() {
                   Here's what's happening with your finances this {summary.month}.
                 </p>
               </div>
-              <AddTransactionDialog onAdd={addTransaction} />
+              <div className="flex items-center gap-3">
+                <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+                  <SelectTrigger className="w-[180px] bg-white/5 border-white/10 text-white">
+                    <SelectValue placeholder="Select month" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-slate-900 border-white/10 text-white">
+                    {monthOptions.map(option => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <AddTransactionDialog onAdd={addTransaction} />
+              </div>
             </div>
 
             <SummaryCards summary={summary} />
@@ -92,15 +137,17 @@ function AppContent() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               <div className="lg:col-span-2 space-y-8">
                 <div className="space-y-4">
-                  <h3 className="text-xl font-semibold text-white/80 px-1">Recent Transactions</h3>
-                  <TransactionsTable transactions={transactions} />
+                  <h3 className="text-xl font-semibold text-white/80 px-1">
+                    {summary.month} Transactions
+                  </h3>
+                  <TransactionsTable transactions={filteredTransactions} />
                 </div>
               </div>
 
               <div className="space-y-8">
-                <ExpenseChart transactions={transactions} summary={summary} />
+                <ExpenseChart transactions={filteredTransactions} summary={summary} />
                 <MonthlyExplanation 
-                  transactions={transactions} 
+                  transactions={filteredTransactions} 
                   summary={summary} 
                 />
               </div>
